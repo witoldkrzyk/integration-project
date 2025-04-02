@@ -36,27 +36,8 @@ In the project root, create a file named `.env` with the following content:
 ```
 
 Ensure that both directories exist before running the app.
-   
-3. **Install dependencies (for local execution).**
 
-If you wish to run the application locally (without Docker), create a virtual environment and install dependencies:
-
-```bash
-  python -m venv venv
-  . venv/bin/activate
-  pip install -r requirements.txt
-```
-
-## Running the Application
-
-### Locally
-
-**Run the main script with:**
-```bash
-  python main.py
-```
-
-### Using Docker
+### Run project using Docker
 Run the application in Docker container step by step:
 
 **Build the image:**
@@ -74,6 +55,21 @@ Run the application in Docker container step by step:
   make clean
 ```
 
+### Install dependencies (for local execution).
+
+If you wish to run the application locally (without Docker), create a virtual environment and install dependencies:
+
+```bash
+  python -m venv venv
+  . venv/bin/activate
+  pip install -r requirements.txt
+```
+
+**Run the main script with:**
+```bash
+  python main.py
+```
+
 ## Logging
 The application logs events to the console using Python's `logging` module:
  * `INFO`: Start and end of processes, successful conversions.
@@ -86,6 +82,6 @@ This project is released under the **MIT License**.
 
 ## Final Notes
 
-You're ready to go! Just add your `.txt` files to the input folder and run the application.  
-All converted files will be saved in the output folder.  
-Unsupported file types will be ignored and logged for reference.
+You're ready to go! Just add your `.txt` files to the input folder and run the application.
+All converted files will be saved in the output folder.
+Unsupported file types will be moved to an error folder for review.

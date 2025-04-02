@@ -1,5 +1,27 @@
+"""
+Integration Project (UTF-8 Converter)
+
+This module implements a Python application that converts text files (.txt) to UTF-8
+encoding. The core functionality is provided by the UTF8Converter class, which
+processes files in fixed-size chunks (4KB by default) to efficiently handle large files
+without consuming excessive memory. It uses an incremental decoder to attempt decoding
+with UTF-8 first, and falls back to Latin-1 if needed, logging appropriate warnings.
+
+The module supports asynchronous batch conversion of files from an input directory to
+an output directory, tracking progress with tqdm. Non-.txt files found in the input
+directory are moved to a separate error folder. Configuration is managed via a .env
+file (which should define the absolute paths for INPUT_DIR and OUTPUT_DIR).
+Detailed logging is provided to monitor key events and errors during file conversion.
+
+This application is designed to be deployed in containerized environments using Docker,
+with build and run automation facilitated by a Makefile.
+"""
+
+
 import os
 import asyncio
+import shutil
+import codecs
 from tqdm import tqdm
 import logging
 from dotenv import load_dotenv
@@ -33,35 +55,48 @@ class UTF8Converter:
 
     def convert_file(self) -> None:
         """
-        Convert the file at input_path to UTF-8 encoding and save it to output_path.
+        Convert the input file to UTF-8 encoding and save it to the output file.
+
+        The file is read in 4KB chunks to efficiently handle large files.
+        The method first attempts to decode using UTF-8, and if that fails,
+        it falls back to Latin-1. File operations are managed with context
+        managers, and key events are logged.
 
         Raises:
-            ValueError: If the file extension is not .txt.
-            Exception: If an error occurs during file reading, decoding, or writing.
+            Exception: For any errors during file reading, decoding, or writing.
         """
 
         logger.info(f"Starting conversion for file: {self.input_path}")
 
-        if not self.input_path.lower().endswith(".txt"):
-            logger.error(f"Error: Only .txt files are supported: {self.input_path}")
-            raise ValueError("Only .txt files are supported")
+        chunk_size = 4096
 
         try:
-            with open(self.input_path, "rb") as file:
-                content = file.read()
+            decoder = codecs.getincrementaldecoder("utf-8")()
+            fallback_used = False
 
-            try:
-                decoded_content = content.decode("utf-8")
-            except UnicodeDecodeError:
-                logger.warning(
-                    f"Failed to decode as UTF-8, using latin-1 instead: "
-                    f"{self.input_path}"
-                )
+            with open(self.input_path, "rb") as infile, open(
+                self.output_path, "w", encoding="utf-8"
+            ) as outfile:
+                while True:
+                    chunk = infile.read(chunk_size)
+                    if not chunk:
+                        break
+                    try:
+                        decoded_chunk = decoder.decode(chunk)
+                    except UnicodeDecodeError:
+                        if not fallback_used:
+                            logger.warning(
+                                f"Failed to decode as UTF-8,"
+                                f" switching to latin-1 for: {self.input_path}"
+                            )
+                            decoder = codecs.getincrementaldecoder("latin-1")()
+                            fallback_used = True
+                            decoded_chunk = decoder.decode(chunk)
+                        else:
+                            raise
+                    outfile.write(decoded_chunk)
+                outfile.write(decoder.decode(b"", final=True))
 
-                decoded_content = content.decode("latin-1")
-
-            with open(self.output_path, "w", encoding="utf-8") as file:
-                file.write(decoded_content)
             logger.info(f"File successfully converted: {self.output_path}")
         except Exception as convert_error:
             logger.error(
@@ -85,15 +120,32 @@ async def async_convert_file(converter: UTF8Converter) -> None:
 
 async def async_batch_convert(input_dir: str, output_dir: str) -> None:
     """
-    Asynchronously convert all .txt files from the input directory,
-    saving the converted files in the output directory while tracking progress.
+    Asynchronously convert all .txt files from the input directory and save the
+    converted files in the output directory, while tracking progress using tqdm.
+    Files that do not have a .txt extension are moved to a separate 'error_files'
+    folder located in the parent directory of the input directory. If no .txt files
+    are found, a warning is logged and the process exits.
 
     Args:
-        input_dir (str): The path to the input directory.
-        output_dir (str): The path to the output directory.
+        input_dir (str): The path to the input directory containing text files.
+        output_dir (str): The path to the output directory where converted files will
+            be saved.
+
+    Raises:
+        Exception: Propagates any exceptions that occur during file processing.
     """
 
     logger.info(f"Starting batch conversion in directory: {input_dir}")
+
+    not_txt_files = [f for f in os.listdir(input_dir) if not f.lower().endswith(".txt")]
+    logger.warning(f"Found {len(not_txt_files)} NOT .txt files in input directory.")
+
+    if not_txt_files:
+        error_dir = os.path.join(os.path.dirname(input_dir), "error_files")
+        os.makedirs(error_dir, exist_ok=True)
+
+        for file in not_txt_files:
+            shutil.move(os.path.join(input_dir, file), os.path.join(error_dir, file))
 
     files = [f for f in os.listdir(input_dir) if f.lower().endswith(".txt")]
     if not files:
@@ -131,7 +183,7 @@ if __name__ == "__main__":
         raise FileNotFoundError("Input directory does not exist.")
 
     if not os.path.isdir(output_dir):
-        logger.info("Output directory does not exist. Must be set in .env file.")
-        raise FileNotFoundError("Output directory does not exist.")
+        logger.info("Output directory does not exist. Creating directory.")
+        os.makedirs(output_dir)
 
     asyncio.run(async_batch_convert(input_dir, output_dir))
